@@ -274,7 +274,7 @@ class GmusicStore(BackendStore):
         self.api = Mobileclient()
 
         if not self.login():
-            self.log("Could not login")
+            self.info("Could not login")
             return
 
         # and trigger an update of the data
