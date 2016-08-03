@@ -43,7 +43,7 @@ class MSearch(DatagramProtocol, log.Loggable):
                 self.ssdp_server.register('remote',
                                             headers['usn'], headers['st'],
                                             headers['location'],
-                                            headers['server'],
+                                            headers.get('server', ''),
                                             headers['cache-control'],
                                             host=host)
             else:
