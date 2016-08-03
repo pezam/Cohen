@@ -54,6 +54,7 @@ entry_points = """
   TwitchStore = coherence.backends.twitch_storage:TwitchStore
   YamjStore = coherence.backends.yamj_storage:YamjStore
   YouTubeStore = coherence.backends.youtube_storage:YouTubeStore
+  GmusicStore = coherence.backends.gmusic_storage:GmusicStore
 
   [coherence.plugins.backend.media_renderer]
   BuzztardPlayer = coherence.backends.buzztard_control:BuzztardPlayer
