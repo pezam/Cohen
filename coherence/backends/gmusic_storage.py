@@ -213,7 +213,7 @@ class GmusicProxyStream(utils.ReverseProxyResource, log.Loggable):
 
         self.getFile(request)
 
-        self.info("Request:", self.parent.id, request)
+        self.info("Request: %s %s", self.parent.id, request)
 
         return server.NOT_DONE_YET
 
