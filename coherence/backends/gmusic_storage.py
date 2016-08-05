@@ -95,7 +95,8 @@ class GmusicAlbum(BackendItem):
 
 
     def get_children(self, start=0, end=0):
-        return self.tracks.values()
+        print([value for (key, value) in sorted(self.tracks.items())])
+        return [value for (key, value) in sorted(self.tracks.items())]
 
     def get_child_count(self):
         return len(self.tracks)
@@ -383,6 +384,7 @@ class GmusicStore(BackendStore):
                 duration = song.get("durationMillis", 0)
                 album_art_uri = song.get("albumArtRef", [{"url":""}])[0].get("url", "")
                 track_no = song.get("trackNumber", "0")
+                disc_no = song.get("discNumber", "0")
                 artist = song.get("artist", "")
                 album_artist = song.get("albumArtist", artist)
                 if album_id in self.albums:
@@ -394,7 +396,8 @@ class GmusicStore(BackendStore):
 
                 track = GmusicTrack(TRACKS_ID, self, song_id, title, artist, album_name, artist_id, album_id, track_no,
                                     duration, album_art_uri)
-                album.tracks[track_no] = track
+
+                album.tracks[int(str(disc_no) + str('{:0>10}'.format(track_no)))] = track
                 self.container.tracks.children.append(track)
                 self.tracks[song_id] = track
                 # i = i + 1
