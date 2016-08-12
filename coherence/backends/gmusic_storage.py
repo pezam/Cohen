@@ -20,6 +20,7 @@ from gmusicapi import Mobileclient
 
 import tempfile
 import traceback
+import sys
 
 # Define global identifiers as well as the cache
 # Todo: Flush cache at appropriate times
@@ -235,6 +236,9 @@ class GmusicStore(BackendStore):
         # first we initialize our heritage
         BackendStore.__init__(self, server, **kwargs)
 
+        reload(sys)
+        sys.setdefaultencoding('utf-8')
+
         # When a Backend is initialized, the configuration is given as keyword
         # arguments to the initialization. We receive it here as a dictionary
         # and allow some values to be set:
@@ -308,7 +312,6 @@ class GmusicStore(BackendStore):
         if id in self.albums:
             self.info("id in albums:", id)
             album = self.albums.get(id, None)
-            print album
             return album
         return self.tracks.get(id, None)
 
