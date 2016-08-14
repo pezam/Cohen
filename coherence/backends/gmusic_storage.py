@@ -409,7 +409,7 @@ class GmusicStore(BackendStore):
                 print(song)
                 traceback.print_exc()
         try:
-            self.container.albums.children.sort(key=lambda x: x.artist)
+            self.container.albums.children.sort(key=lambda x: (x.artist, x.title))
         except Exception as e:
             print("Failed to sort albums")
             print(e)
