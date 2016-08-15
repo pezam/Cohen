@@ -21,9 +21,9 @@ from gmusicapi import Mobileclient
 import tempfile
 import traceback
 import sys
+import os
 
 # Define global identifiers as well as the cache
-# Todo: Flush cache at appropriate times
 cache = {}
 ROOT_ID = 0
 TRACKS_ID = 10
@@ -164,14 +164,14 @@ class GmusicProxyStream(utils.ReverseProxyResource, log.Loggable):
         self.info(request)
         self.info(error)
 
-    def gotFile(self, result, (request, filename)):
+    def gotFile(self, result, (request, tmpfile, filename)):
         downloadedFile = utils.StaticFile(filename, self.parent.mimetype)
         downloadedFile.type = self.parent.mimetype
         self.filesize = downloadedFile.getFileSize()
         self.mimetype = self.parent.mimetype
         downloadedFile.encoding = None
         self.info("File downloaded")
-        cache[self.id] = filename
+        cache[self.id] = (tmpfile, filename)
         file = downloadedFile.render(request)
         self.info("File rendered")
         if isinstance(file, int):
@@ -184,16 +184,15 @@ class GmusicProxyStream(utils.ReverseProxyResource, log.Loggable):
         if not self.id in cache:
             real_url = self.store.api.get_stream_url(self.id)
 
-            tmpfile = tempfile.mkstemp()
-            tmpfilename = tmpfile[1]
+            (tmpfile, tmpfilename) = tempfile.mkstemp()
             res = utils.downloadPage(real_url, tmpfilename, supportPartial=1)
-            res.addCallback(self.gotFile, (request, tmpfilename))
+            res.addCallback(self.gotFile, (request, tmpfile, tmpfilename))
             res.addErrback(self.gotDownloadError, request)
             self.info("Started download")
             return server.NOT_DONE_YET
 
         else:
-            downloadedFile = utils.StaticFile(cache[self.id], self.parent.mimetype)
+            downloadedFile = utils.StaticFile(cache[self.id][1], self.parent.mimetype)
             downloadedFile.type = self.parent.mimetype
             self.filesize = downloadedFile.getFileSize()
             self.parent.item.size = self.filesize
@@ -355,6 +354,12 @@ class GmusicStore(BackendStore):
         dfr.addCallback(self._update_container)
         # in ANY case queue an update of the data
         dfr.addBoth(self.queue_update)
+        # finally clean the tempfiles
+        # TODO: this might clear the file currently being downloaded
+        for file_id, file_tmp in cache.iteritems():
+            os.close(file_tmp[0])
+            os.remove(file_tmp[1])
+        cache.clear()
 
     def update_data(self):
         # trigger an update of the data
