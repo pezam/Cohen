@@ -29,6 +29,7 @@ ROOT_ID = 0
 TRACKS_ID = 10
 ALBUM_ID = 20
 ARTIST_ID = 30
+PLAYLIST_ID = 40
 
 
 class GmusicTrack(BackendItem):
@@ -96,7 +97,7 @@ class GmusicAlbum(BackendItem):
 
 
     def get_children(self, start=0, end=0):
-        print([value for (key, value) in sorted(self.tracks.items())])
+#        print([value for (key, value) in sorted(self.tracks.items())])
         return [value for (key, value) in sorted(self.tracks.items())]
 
     def get_child_count(self):
@@ -109,6 +110,34 @@ class GmusicAlbum(BackendItem):
         item.albumArtURI = self.albumArtURI
         return item
 
+class GmusicPlaylist(BackendItem):
+    def __init__(self, parent_id, store, id, name, author, author_image):
+        BackendItem.__init__(self)
+        self.parent_id = parent_id
+        self.update_id = 0
+        self.store = store
+
+        self.id = id
+        self.name = name
+        self.author = author
+        self.author_image = author_image
+
+        self.tracks = []
+
+        self.mimetype = "directory"
+
+    def get_children(self, start=0, end=0):
+        return self.tracks
+
+    def get_child_count(self):
+        return len(self.tracks)
+
+    def get_item(self, parent_id=PLAYLIST_ID):
+        item = DIDLLite.MusicAlbum(self.id, parent_id, self.name)
+        item.childCount = self.get_child_count()
+        item.artist = self.author
+        item.albumArtURI = self.author_image
+        return item
 
 class GmusicContainer(BackendItem):
     def __init__(self, parent_id, id, name):
@@ -256,15 +285,18 @@ class GmusicStore(BackendStore):
         self.container = GmusicContainer(None, ROOT_ID, "Google Music")
         self.container.tracks = GmusicContainer(self.container, TRACKS_ID, "Tracks")
         self.container.albums = GmusicContainer(self.container, ALBUM_ID, "Albums")
+        self.container.playlists = GmusicContainer(self.container, PLAYLIST_ID, "Playlists")
 
         self.container.children.append(self.container.tracks)
         self.container.children.append(self.container.albums)
+        self.container.children.append(self.container.playlists)
 
         # but as we also have to return them on 'get_by_id', we have our local
         # store of items per id:
         self.tracks = {}
         self.albums = {}
         self.artists = {}
+        self.playlists = {}
 
         # we tell that if an XBox sends a request for images we'll
         # map the WMC id of that request to our local one
@@ -307,11 +339,19 @@ class GmusicStore(BackendStore):
             return self.container.albums
         if id == str(TRACKS_ID):
             return self.container.tracks
+        if id == str(PLAYLIST_ID):
+            return self.container.playlists
 
         if id in self.albums:
             self.info("id in albums:", id)
             album = self.albums.get(id, None)
             return album
+
+        if id in self.playlists:
+            self.info("id in playlists:", id)
+            playlist = self.playlists.get(id, None)
+            return playlist
+
         return self.tracks.get(id, None)
 
     def upnp_init(self):
@@ -361,30 +401,26 @@ class GmusicStore(BackendStore):
             os.remove(file_tmp[1])
         cache.clear()
 
+    def get_data(self):
+        subscribed_to_playlists = [p for p in self.api.get_all_playlists() if p.get('type') == 'SHARED']
+        for playlist in subscribed_to_playlists:
+            playlist["tracks"] = self.api.get_shared_playlist_contents(playlist.get("shareToken", ""))
+        return (self.api.get_all_songs(), self.api.get_all_user_playlist_contents(), subscribed_to_playlists)
+
     def update_data(self):
         # trigger an update of the data
         self.info("Updating data")
-        dfr = task.deferLater(reactor, 0, self.api.get_all_songs)
+        dfr = task.deferLater(reactor, 0, self.get_data)
         # then parse the data into our models
         dfr.addCallback(self.parse_data)
         # self.parse_data(dfr)
         self.info("Finished update")
         return dfr
 
-    def parse_data(self, data):
-        self.info("Parsing data")
-        # reset the storage
-        self.container.tracks.children = []
-        self.container.albums.children = []
-        self.tracks = {}
-        self.albums = {}
-
-        for song in data:
+    def parse_library(self, songs):
+        for song in songs:
             try:
-                # if i > 1000:
-                #     break
-                # id, title, artist_id, album_id
-                song_id = song.get("id", 0)
+                song_id = song.get("storeId", song.get("nid", 0))
                 title = song.get("title", "")
                 artist_id = song.get("artistId", [0])[0]
                 album_id = song.get("albumId", 0)
@@ -420,6 +456,69 @@ class GmusicStore(BackendStore):
             print(e)
             traceback.print_exc()
 
+    def parse_playlist_tracks(self, tracks):
+        tracklist = []
+        for track in tracks:
+            try:
+                song = track.get("track", {})
+                song_id = song.get("storeId", song.get("nid", 0))
+                if song_id in self.tracks:
+                    tracklist.append(self.tracks[song_id])
+                else:
+                    title = song.get("title", "")
+                    artist_id = song.get("artistId", [0])[0]
+                    album_id = song.get("albumId", 0)
+                    album_name = song.get("album", "")
+                    duration = song.get("durationMillis", 0)
+                    album_art_uri = song.get("albumArtRef", [{"url":""}])[0].get("url", "")
+                    track_no = song.get("trackNumber", "0")
+                    artist = song.get("artist", "")
+
+                    track_container = GmusicTrack(TRACKS_ID, self, song_id, title, artist, album_name, artist_id, album_id, track_no,
+                                        duration, album_art_uri)
+                    tracklist.append(track_container)
+                    self.tracks[song_id] = track_container
+            except Exception as e:
+                print(e)
+                print(track)
+                traceback.print_exc()
+
+        return tracklist
+
+    def parse_playlists(self, playlists):
+        for playlist in playlists:
+            try:
+                playlist_id = playlist.get("id", playlist.get("shareToken", "DEBUG: NO_ID_TOKEN"))
+                playlist_owner = playlist.get("ownerName", "DEBUG: NO_AUTHOR")
+                playlist_owner_image = playlist.get("ownerProfilePhotoUrl", "DEBUG: NO_AUTHOR_IMAGE")
+                playlist_name = playlist.get("name", "DEBUG: NO_NAME")
+                playlist_tracks = playlist.get("tracks", {})
+
+                playlist_container = GmusicPlaylist(PLAYLIST_ID, self, playlist_id, playlist_name, playlist_owner, playlist_owner_image)
+                self.container.playlists.children.append(playlist_container)
+                self.playlists[playlist_id] = playlist_container
+
+                playlist_container.tracks = self.parse_playlist_tracks(playlist_tracks)
+
+            except Exception as e:
+                print(e)
+                print(playlist)
+                traceback.print_exc()
+
+    def parse_data(self, data):
+        self.info("Parsing data")
+        # reset the storage
+        self.container.tracks.children = []
+        self.container.albums.children = []
+        self.container.playlists.children = []
+        self.tracks = {}
+        self.albums = {}
+        self.playlists = {}
+
+        self.parse_library(data[0])
+        self.parse_playlists(data[1])
+        self.parse_playlists(data[2])
+
         self.info("Finished parsing")
 
         # and increase the container update id and the system update id
@@ -443,7 +542,7 @@ if __name__ == '__main__':
         config['logmode'] = 'info'
         c = Coherence(config)
         f = c.add_plugin('GmusicStore',
-                         username="@gmail.com",
+                         username="",
                          password="",
                          device_id="",
                          no_thread_needed=True)
