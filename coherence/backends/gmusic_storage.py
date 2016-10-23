@@ -25,6 +25,8 @@ import os
 
 # Define global identifiers as well as the cache
 cache = {}
+
+recent_cache = {}
 ROOT_ID = 0
 TRACKS_ID = 10
 ALBUM_ID = 20
@@ -201,6 +203,8 @@ class GmusicProxyStream(utils.ReverseProxyResource, log.Loggable):
         downloadedFile.encoding = None
         self.info("File downloaded")
         cache[self.id] = (tmpfile, filename)
+        # mark as recent
+        recent_cache[self.id] = cache[self.id]
         file = downloadedFile.render(request)
         self.info("File rendered")
         if isinstance(file, int):
@@ -222,6 +226,8 @@ class GmusicProxyStream(utils.ReverseProxyResource, log.Loggable):
 
         else:
             downloadedFile = utils.StaticFile(cache[self.id][1], self.parent.mimetype)
+            # mark as recent
+            recent_cache[self.id] = cache[self.id]
             downloadedFile.type = self.parent.mimetype
             self.filesize = downloadedFile.getFileSize()
             self.parent.item.size = self.filesize
@@ -395,11 +401,14 @@ class GmusicStore(BackendStore):
         # in ANY case queue an update of the data
         dfr.addBoth(self.queue_update)
         # finally clean the tempfiles
-        # TODO: this might clear the file currently being downloaded
+        print("Cleaning tempfiles")
         for file_id, file_tmp in cache.iteritems():
-            os.close(file_tmp[0])
-            os.remove(file_tmp[1])
+            if file_id not in recent_cache:
+                os.close(file_tmp[0])
+                os.remove(file_tmp[1])
         cache.clear()
+        cache.update(recent_cache)
+        recent_cache.clear()
 
     def get_data(self):
         subscribed_to_playlists = [p for p in self.api.get_all_playlists() if p.get('type') == 'SHARED']
